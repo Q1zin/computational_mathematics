@@ -16,6 +16,10 @@ impl LinearDegree {
         Self { a, b, roots: None }
     }
 
+    pub fn get_value(&self, x: f32) -> f32 {
+        x * self.a + self.b
+    }
+
     pub fn get_roots(&mut self) -> f32 {
         if self.a == 0. {
             panic!("a должно быть не равно 0!");
@@ -121,7 +125,7 @@ impl ThirdDegree {
 
         info!("discr {discr}");
 
-        if discr < -self.eps {
+        if discr < 0. { // хотя по идее надо < -self.eps
             let value_zero = self.get_value(0.);
             info!("value_zero {value_zero}");
             let left: f32;
@@ -142,17 +146,26 @@ impl ThirdDegree {
             if self.get_derivative().get_value(x).abs() > self.eps {
                 println!("Нашли корень {x} и ещё существует 2 комплексных корня");
             } else {
-                println!("Нашли корень {x}, его кратность 3");
+                if self.get_derivative().get_derivative().get_value(x).abs() > self.eps {
+                    println!("Нашли корень {x}, его кратность 3");
+                } else {
+                    panic!("Оч странная ситуация, нашли корень {x} и при этом у него кратность 2, а не 3");
+                }
             }
             
             self.roots = Some(vec![x]);
-        } else if discr >= self.eps {
+        } else if discr >= 0. {
             let Some(mut critical_points) = first_derivative.get_roots() else {
                 panic!("Нету корней, хотя должны быть");
             };
 
             critical_points.sort_by(|a, b| a.partial_cmp(b).unwrap());
             info!("critical_points {:?}", critical_points);
+
+            if critical_points.len() != 2 {
+                info!("Количество критических точек не равно 2, значит это монотонная функция =)))");
+                critical_points.append(&mut vec![critical_points[0]]);
+            }
 
             let mut left = critical_points[0];
             let mut right = critical_points[1];
@@ -195,7 +208,6 @@ impl ThirdDegree {
             } else {
                 error!("Не все ситуации учел в случая расположения корней");
             }
-
         } else {
             error!("Прекол, хз что делать =)))")
         }
@@ -314,8 +326,8 @@ fn round_to(x: f32, decimals: u32) -> f32 {
 fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).format_timestamp_millis().init();
 
-    let mut gg = ThirdDegree::new(0.0, 2.0, -1.0, 1e-4, 0.3);
-    println!("Итоговый ответ: {:?}", gg.get_roots());
+    let mut test = ThirdDegree::new(-6., 12., -8., 1e-4, 0.3);
+    println!("Итоговый ответ: {:?}", test.get_roots());
 }
 
 #[cfg(test)]
@@ -493,8 +505,9 @@ mod third_degree_tests {
     fn td_triple_root_currently_none() {
         // (x-1)^3 = x^3 - 3x^2 + 3x - 1 → тройной корень 1
         let mut f = ThirdDegree::new(-3.0, 3.0, -1.0, EPS, DELTA);
-        let got = f.get_roots();
-        assert!(got.is_none(), "expected None for discr≈0 with current impl, got {:?}", got);
+        let got = f.get_roots().expect("expected Some roots");
+        assert_eq!(got.len(), 1, "expected three roots, got {:?}", got);
+        assert_vec_approx_eq_unordered(got, vec![1.], 2e-3);
     }
 
     // 10) Три близких корня (проверяем устойчивость к точности/шагу delta)
