@@ -1,4 +1,7 @@
-static MAX_COUNT_LOOP: i32 = 1000;
+use log::{info, error};
+use env_logger::Env;
+
+static MAX_COUNT_LOOP: i32 = 10000;
 static ROUND_COUNT: u32 = 3;
 
 // ax + b = 0
@@ -112,56 +115,97 @@ impl ThirdDegree {
     }
 
     pub fn get_roots(&mut self) -> Option<Vec<f32>> {
+        info!("get_roots start");
         let mut first_derivative = self.get_derivative();
         let discr = first_derivative.get_discr();
 
-        println!("discr {discr}");
+        info!("discr {discr}");
 
         if discr < -self.eps {
-            let value_zero = first_derivative.get_value(0.);
+            let value_zero = self.get_value(0.);
+            info!("value_zero {value_zero}");
             let left: f32;
             let right: f32;
 
             if value_zero < -self.eps {
-                // идём от 0 до +inf
                 (left, right) = self.get_local_root(0., f32::INFINITY);
             } else if value_zero > self.eps {
-                // идём от -inf до 0
                 (left, right) = self.get_local_root(f32::NEG_INFINITY, 0.);
             } else {
-                // то корень = 0
                 (left, right) = (0., 0.)
             }
 
-            println!("left {left} right {right}");
+            info!("left {left} right {right}");
 
-            let x = self.found_root(left, right);
+            let x = round_to(self.found_root(left, right), ROUND_COUNT);
 
             if self.get_derivative().get_value(x).abs() > self.eps {
                 println!("Нашли корень {x} и ещё существует 2 комплексных корня");
             } else {
                 println!("Нашли корень {x}, его кратность 3");
             }
+            
+            self.roots = Some(vec![x]);
         } else if discr >= self.eps {
-            let critical_points = first_derivative.get_roots();
-            match critical_points {             
-                Some(v) => {
-                    for x in v.iter() {
-                        println!("{x} ");
-                    }
-                },
-                None => {
-                    print!("нету корней");
-                }
+            let Some(mut critical_points) = first_derivative.get_roots() else {
+                panic!("Нету корней, хотя должны быть");
+            };
+
+            critical_points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            info!("critical_points {:?}", critical_points);
+
+            let mut left = critical_points[0];
+            let mut right = critical_points[1];
+            let value_left = self.get_value(left);
+            let value_right = self.get_value(right);
+
+            info!("value_left {value_left} right_left {value_right}");
+
+            if value_left < -self.eps && value_right < -self.eps {
+                info!("1");
+                (left, right) = self.get_local_root(right, f32::INFINITY);
+                let x = round_to(self.found_root(left, right), ROUND_COUNT);
+                self.roots = Some(vec![x]);
+            } else if value_left > self.eps && value_right > self.eps {
+                info!("2");
+                (left, right) = self.get_local_root(f32::NEG_INFINITY, left);
+                let x = round_to(self.found_root(left, right), ROUND_COUNT);
+                self.roots = Some(vec![x]);
+            } else if value_left > self.eps && value_right.abs() < self.eps {
+                info!("3");
+                let (left, right_new) = self.get_local_root(f32::NEG_INFINITY, left);
+                let x = round_to(self.found_root(left, right_new), ROUND_COUNT);
+                self.roots = Some(vec![x, right]);
+            } else if value_left.abs() < self.eps && value_right < -self.eps {
+                info!("4");
+                let (left_new, right) = self.get_local_root(right, f32::INFINITY);
+                let x = round_to(self.found_root(left_new, right), ROUND_COUNT);
+                self.roots = Some(vec![left, x]);
+            } else if value_left > self.eps && value_right < -self.eps {
+                info!("5 {left} {right}");
+                let (left_1, right_1) = self.get_local_root(f32::NEG_INFINITY, left);
+                let x1 = round_to(self.found_root(left_1, right_1), ROUND_COUNT);
+                let x2 = round_to(self.found_root(left, right), ROUND_COUNT);
+                let (left_3, right_3) = self.get_local_root(right, f32::INFINITY);
+                let x3 = round_to(self.found_root(left_3, right_3), ROUND_COUNT);
+                self.roots = Some(vec![x1, x2, x3]);
+            } else if value_left.abs() < self.eps && value_right.abs() < self.eps{
+                info!("6");
+                self.roots = Some(vec![round_to((left + right) / 2., ROUND_COUNT)])
+            } else {
+                error!("Не все ситуации учел в случая расположения корней");
             }
+
         } else {
-            panic!("Прекол, хз что делать =)))")
+            error!("Прекол, хз что делать =)))")
         }
 
+        info!("get_roots end");
         return self.roots.clone();
     }
 
     fn get_local_root(&self, a: f32, b: f32) -> (f32, f32) {
+        info!("get_local_root start");
         let go_left_or_right;
 
         if a == f32::NEG_INFINITY {
@@ -181,53 +225,65 @@ impl ThirdDegree {
             _ => panic!("Неверное значение go_left_or_right")
         };
 
+        info!("0 {left} {right}");
+
         let mut count_loop = 0;
        
         while (self.get_value(left) * self.get_value(right)) > 0. && count_loop < MAX_COUNT_LOOP {
             count_loop += 1;
-            println!("{count_loop} {left} {right}");
+            info!("{count_loop} {left} {right}");
             (left, right) = match go_left_or_right {
                 -1 => (left - self.delta, left),
                 1 => (right, right + self.delta),
                 _ => panic!("Неверное значение go_left_or_right")
             };
+            info!("{count_loop} {left} {right}");
         }
 
         if count_loop == MAX_COUNT_LOOP {
             panic!("Не удалось дойти до корня(((");
         }
 
+        info!("get_local_root end");
+
         return (left, right);
     }
 
     fn found_root(&self, left: f32, right: f32) -> f32 {
+        info!("found_root start");
         let mut left = left;
         let mut right = right;
 
-        let count_loop = 0;
+        info!("0 {left} {right}");
+
+        let mut count_loop = 0;
 
         loop {
+            count_loop += 1;
             let value_left = self.get_value(left);
             let value_right = self.get_value(right);
 
-            // println!("value_left {value_left} value_right {value_right} left {left} right {right}");
+            info!("value_left {value_left} value_right {value_right} left {left} right {right}");
 
             if value_left.abs() < self.eps && value_right.abs() < self.eps {
+                info!("found_root end 1 {}", (left + right) / 2.);
                 return (left + right) / 2.;
             }
 
             if value_left.abs() <= self.eps {
+                info!("found_root end 2 {}", left);
                 return left;
             }
 
             if value_right.abs() <= self.eps {
+                info!("found_root end 3 {}", right);
                 return right;
             }
 
             let center: f32 = (left + right) / 2.;
             let value_center = self.get_value(center);
-
             if value_center.abs() < self.eps {
+                info!("found_root end 4 {}", center);
                 return center;
             }
 
@@ -237,8 +293,10 @@ impl ThirdDegree {
                 left = center;
             }
 
+            info!("{count_loop} [{left} {right}] f(left)={value_left} f(right)={value_right} f(center)={value_center}");
+
             if count_loop >= MAX_COUNT_LOOP {
-                panic!("Не удалось дойти до корня на отрезке")
+                panic!("Не удалось дойти до корня на отрезке с данной точностью")
             }
         }
     }
@@ -254,8 +312,10 @@ fn round_to(x: f32, decimals: u32) -> f32 {
 }
 
 fn main() {
-    let mut gg = ThirdDegree::new(-6., 12., -8., 0., 0.3);
-    gg.get_roots();
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).format_timestamp_millis().init();
+
+    let mut gg = ThirdDegree::new(0.0, 2.0, -1.0, 1e-4, 0.3);
+    println!("Итоговый ответ: {:?}", gg.get_roots());
 }
 
 #[cfg(test)]
@@ -320,5 +380,130 @@ mod tests {
 
         let mut equation_5 = SecondDegree::new(3.5, -7.0, 1.0, eps);
         assert_eq!(equation_5.get_roots(), Some(vec![1.845, 0.155]));
+    }
+}
+
+#[cfg(test)]
+mod third_degree_tests {
+    use super::*;
+
+    const EPS: f32 = 1e-4;
+    const DELTA: f32 = 0.3;
+
+    fn approx_eq(a: f32, b: f32, tol: f32) -> bool {
+        (a - b).abs() <= tol
+    }
+
+    fn sort(v: &mut Vec<f32>) {
+        v.sort_by(|x, y| x.partial_cmp(y).unwrap());
+    }
+
+    fn assert_vec_approx_eq_unordered(mut got: Vec<f32>, mut expected: Vec<f32>, tol: f32) {
+        sort(&mut got);
+        sort(&mut expected);
+        assert_eq!(got.len(), expected.len(), "different lengths: got={got:?}, expected={expected:?}");
+        for (g, e) in got.iter().zip(expected.iter()) {
+            assert!(approx_eq(*g, *e, tol), "element mismatch: got={g}, expected={e}");
+        }
+    }
+
+    // 1) discr < 0 и f(0) < 0  → корень единственный существует
+    #[test]
+    fn td_monotone_right_interval() {
+        // x^3 + 2x - 1  (a=0, b=2, c=-1) → производная 3x^2 + 2a x + b = 3x^2 + 2
+        let mut f = ThirdDegree::new(0.0, 2.0, -1.0, EPS, DELTA);
+        let got = f.get_roots().expect("expected Some roots");
+        assert_eq!(got.len(), 1, "expected single root, got {:?}", got);
+        assert!(approx_eq(got[0], 0.453, 1e-3), "root mismatch: got={}, expected≈0.453", got[0]);
+    }
+
+    // 2) discr < 0 и f(0) > 0  → корень единственный существует
+    #[test]
+    fn td_monotone_left_interval() {
+        // x^3 + 2x + 1 → также монотонна
+        let mut f = ThirdDegree::new(0.0, 2.0, 1.0, EPS, DELTA);
+        let got = f.get_roots().expect("expected Some roots");
+        assert_eq!(got.len(), 1, "expected single root, got {:?}", got);
+        assert!(approx_eq(got[0], -0.453, 1e-3), "root mismatch: got={}, expected≈-0.453", got[0]);
+    }
+
+    // 3) Ветка "1": value_left < 0 и value_right < 0 → один корень справа от правой крит. точки
+    #[test]
+    fn td_both_negative_one_root_right() {
+        // x^3 - 4x - 6  → корень примерно 2.525102
+        let mut f = ThirdDegree::new(0.0, -4.0, -6.0, EPS, DELTA);
+        let got = f.get_roots().expect("expected Some roots");
+        assert_eq!(got.len(), 1, "expected single root, got {:?}", got);
+        assert!(approx_eq(got[0], 2.5251, 1e-3), "root mismatch: got={}, expected≈2.5251", got[0]);
+    }
+
+    // 4) Ветка "2": value_left > 0 и value_right > 0 → один корень слева от левой крит. точки
+    #[test]
+    fn td_both_positive_one_root_left() {
+        // x^3 - 4x + 6  → корень примерно -2.525102
+        let mut f = ThirdDegree::new(0.0, -4.0, 6.0, EPS, DELTA);
+        let got = f.get_roots().expect("expected Some roots");
+        assert_eq!(got.len(), 1, "expected single root, got {:?}", got);
+        assert!(approx_eq(got[0], -2.5251, 1e-3), "root mismatch: got={}, expected≈-2.5251", got[0]);
+    }
+
+    // 5) Ветка "3": value_left > 0 и value_right ≈ 0 → правый крит. пункт — корень (двукратный),
+    //    плюс ещё один корень слева
+    #[test]
+    fn td_right_critical_on_axis() {
+        // x(x-2)^2 = x^3 - 4x^2 + 4x  → корни: 0 и 2 (2 — кратный)
+        let mut f = ThirdDegree::new(-4.0, 4.0, 0.0, EPS, DELTA);
+        let got = f.get_roots().expect("expected Some roots");
+        // реализация возвращает [x_левый, right_critical]
+        assert_vec_approx_eq_unordered(got, vec![0.0, 2.0], 2e-3);
+    }
+
+    // 6) Ветка "4": value_left ≈ 0 и value_right < 0 → левый крит. пункт — корень (двукратный),
+    //    плюс ещё один корень справа
+    #[test]
+    fn td_left_critical_on_axis() {
+        // (x-1)^2 (x-3) = x^3 - 5x^2 + 7x - 3 → корни: 1 (кратный), 3
+        let mut f = ThirdDegree::new(-5.0, 7.0, -3.0, EPS, DELTA);
+        let got = f.get_roots().expect("expected Some roots");
+        assert_vec_approx_eq_unordered(got, vec![1.0, 3.0], 2e-3);
+    }
+
+    // 7) Ветка "5": value_left > 0 и value_right < 0 → три действительных корня
+    #[test]
+    fn td_three_real_roots_symmetric() {
+        // x(x^2 - 4) = x^3 - 4x → корни: -2, 0, 2
+        let mut f = ThirdDegree::new(0.0, -4.0, 0.0, EPS, DELTA);
+        let got = f.get_roots().expect("expected Some roots");
+        assert_eq!(got.len(), 3, "expected three roots, got {:?}", got);
+        assert_vec_approx_eq_unordered(got, vec![-2.0, 0.0, 2.0], 2e-3);
+    }
+
+    // 8) Ещё пример ветки "5": три разных действительных корня без симметрии
+    #[test]
+    fn td_three_real_roots_asymmetric() {
+        // (x+1)(x-2)(x-3) = x^3 - 4x^2 + x + 6 → корни: -1, 2, 3
+        let mut f = ThirdDegree::new(-4.0, 1.0, 6.0, EPS, DELTA);
+        let got = f.get_roots().expect("expected Some roots");
+        assert_eq!(got.len(), 3, "expected three roots, got {:?}", got);
+        assert_vec_approx_eq_unordered(got, vec![-1.0, 2.0, 3.0], 2e-3);
+    }
+
+    // 9) Случай discr ≈ 0 (тройной корень): сейчас попадает в ветку error! и возвращает None
+    #[test]
+    fn td_triple_root_currently_none() {
+        // (x-1)^3 = x^3 - 3x^2 + 3x - 1 → тройной корень 1
+        let mut f = ThirdDegree::new(-3.0, 3.0, -1.0, EPS, DELTA);
+        let got = f.get_roots();
+        assert!(got.is_none(), "expected None for discr≈0 with current impl, got {:?}", got);
+    }
+
+    // 10) Три близких корня (проверяем устойчивость к точности/шагу delta)
+    #[test]
+    fn td_three_close_roots_precision() {
+        // (x+2)(x-1)(x-1.1) = x^3 - 0.1x^2 - 3.1x + 2.2 → корни: -2, 1, 1.1
+        let mut f = ThirdDegree::new(-0.1, -3.1, 2.2, EPS, DELTA);
+        let got = f.get_roots().expect("expected Some roots");
+        assert_eq!(got.len(), 3, "expected three roots, got {:?}", got);
+        assert_vec_approx_eq_unordered(got, vec![-2.0, 1.0, 1.1], 5e-3);
     }
 }
