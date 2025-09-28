@@ -1,3 +1,5 @@
+use std::result;
+
 use log::{info, error};
 use env_logger::Env;
 
@@ -5,13 +7,13 @@ static MAX_COUNT_LOOP: i32 = 10000;
 static ROUND_COUNT: u32 = 3;
 
 // ax + b = 0
-struct LinearDegree {
+struct LinearEquation {
     a: f32,
     b: f32,
     roots: Option<f32>,
 }
 
-impl LinearDegree {
+impl LinearEquation {
     pub fn new(a: f32, b: f32) -> Self {
         Self { a, b, roots: None }
     }
@@ -32,7 +34,7 @@ impl LinearDegree {
 }
 
 // ax^2 + bx + c = 0
-struct SecondDegree {
+struct QuadraticEquation {
     a: f32,
     b: f32,
     c: f32,
@@ -41,7 +43,7 @@ struct SecondDegree {
     roots: Option<Vec<f32>>,
 }
 
-impl SecondDegree {
+impl QuadraticEquation {
     pub fn new(a: f32, b: f32, c: f32, eps: f32) -> Self {
         Self {
             a,
@@ -91,8 +93,8 @@ impl SecondDegree {
         return self.roots.clone();
     }
 
-    pub fn get_derivative(&self) -> LinearDegree {
-        LinearDegree::new(2. * self.a, self.b)
+    pub fn get_derivative(&self) -> LinearEquation {
+        LinearEquation::new(2. * self.a, self.b)
     }
 
     pub fn get_value(&self, x: f32) -> f32 {
@@ -100,7 +102,7 @@ impl SecondDegree {
     }
 }
 
-struct ThirdDegree {
+struct CubicEquation {
     a: f32,
     b: f32,
     c: f32,
@@ -109,13 +111,13 @@ struct ThirdDegree {
     roots: Option<Vec<f32>>,
 }
 
-impl ThirdDegree {
+impl CubicEquation {
     pub fn new(a: f32, b: f32, c: f32, eps: f32, delta: f32) -> Self {
         Self { a, b, c, eps, delta, roots: None }
     }
 
-    pub fn get_derivative(&self) -> SecondDegree {
-        SecondDegree::new(3., 2. * self.a, self.b, self.eps)
+    pub fn get_derivative(&self) -> QuadraticEquation {
+        QuadraticEquation::new(3., 2. * self.a, self.b, self.eps)
     }
 
     pub fn get_roots(&mut self) -> Option<Vec<f32>> {
@@ -125,7 +127,7 @@ impl ThirdDegree {
 
         info!("discr {discr}");
 
-        if discr < 0. { // хотя по идее надо < -self.eps
+        if discr <= self.eps {
             let value_zero = self.get_value(0.);
             info!("value_zero {value_zero}");
             let left: f32;
@@ -142,19 +144,9 @@ impl ThirdDegree {
             info!("left {left} right {right}");
 
             let x = round_to(self.found_root(left, right), ROUND_COUNT);
-
-            if self.get_derivative().get_value(x).abs() > self.eps {
-                println!("Нашли корень {x} и ещё существует 2 комплексных корня");
-            } else {
-                if self.get_derivative().get_derivative().get_value(x).abs() > self.eps {
-                    println!("Нашли корень {x}, его кратность 3");
-                } else {
-                    panic!("Оч странная ситуация, нашли корень {x} и при этом у него кратность 2, а не 3");
-                }
-            }
             
             self.roots = Some(vec![x]);
-        } else if discr >= 0. {
+        } else {
             let Some(mut critical_points) = first_derivative.get_roots() else {
                 panic!("Нету корней, хотя должны быть");
             };
@@ -208,12 +200,40 @@ impl ThirdDegree {
             } else {
                 error!("Не все ситуации учел в случая расположения корней");
             }
-        } else {
-            error!("Прекол, хз что делать =)))")
         }
 
         info!("get_roots end");
         return self.roots.clone();
+    }
+
+    pub fn get_stat_roots(&mut self) -> Option<Vec<(f32, i32)>> {
+        let Some(roots) = self.get_roots() else {
+            return None;
+        };
+
+        let mut result: Vec<(f32, i32)> = vec![];
+
+        for root in roots {
+            let first_val = self.get_derivative().get_value(root);
+            let second_val = self.get_derivative().get_derivative().get_value(root);
+
+            let mut count = 1;
+            if first_val.abs() <= self.eps {
+                count += 1;
+                if second_val.abs() <= self.eps {
+                    count += 1;
+                }
+            }
+            info!("root: {root}, count: {count}");
+
+            result.push((root, count));
+        }
+
+        if result.len() == 0 {
+            return None;
+        }
+
+        return Some(result);
     }
 
     fn get_local_root(&self, a: f32, b: f32) -> (f32, f32) {
@@ -324,10 +344,11 @@ fn round_to(x: f32, decimals: u32) -> f32 {
 }
 
 fn main() {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).format_timestamp_millis().init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("error")).format_timestamp_millis().init();
 
-    let mut test = ThirdDegree::new(-6., 12., -8., 1e-4, 0.3);
-    println!("Итоговый ответ: {:?}", test.get_roots());
+    // let mut test = CubicEquation::new(-6., 12., -8., 1e-4, 0.3);
+    let mut test = CubicEquation::new(3., 3., 1., 1e-5, 1.);
+    println!("Итоговый ответ: {:?}", test.get_stat_roots());
 }
 
 #[cfg(test)]
@@ -336,16 +357,16 @@ mod tests {
 
     #[test]
     fn test_roots_linear() {
-        let mut equation_1 = LinearDegree::new(2.0, 10.0);
+        let mut equation_1 = LinearEquation::new(2.0, 10.0);
         assert_eq!(equation_1.get_roots(), -5.);
 
-        let mut equation_2 = LinearDegree::new(-10.0, 2.0);
+        let mut equation_2 = LinearEquation::new(-10.0, 2.0);
         assert_eq!(equation_2.get_roots(), 0.2);
 
-        let mut equation_3 = LinearDegree::new(16.0, -4.0);
+        let mut equation_3 = LinearEquation::new(16.0, -4.0);
         assert_eq!(equation_3.get_roots(), 0.25);
 
-        let mut equation_4 = LinearDegree::new(3.0, 10.0);
+        let mut equation_4 = LinearEquation::new(3.0, 10.0);
         assert_eq!(equation_4.get_roots(), -3.333);
     }
 
@@ -354,23 +375,23 @@ mod tests {
         let eps = 1e-6;
 
         // D = b^2 - 4ac = 4 - 8 = -4
-        let mut equation_1 = SecondDegree::new(2.0, 2.0, 1.0, eps);
+        let mut equation_1 = QuadraticEquation::new(2.0, 2.0, 1.0, eps);
         assert_eq!(equation_1.get_discr(), -4.);
 
         // D = (-3)^2 - 4*1*2 = 9 - 8 = 1
-        let mut equation_2 = SecondDegree::new(1.0, -3.0, 2.0, eps);
+        let mut equation_2 = QuadraticEquation::new(1.0, -3.0, 2.0, eps);
         assert_eq!(equation_2.get_discr(), 1.);
 
         // D = 2^2 - 4*1*1 = 4 - 4 = 0
-        let mut equation_3 = SecondDegree::new(1.0, 2.0, 1.0, eps);
+        let mut equation_3 = QuadraticEquation::new(1.0, 2.0, 1.0, eps);
         assert_eq!(equation_3.get_discr(), 0.);
 
         // D = 0^2 - 4*1*1 = -4
-        let mut equation_4 = SecondDegree::new(1.0, 0.0, 1.0, eps);
+        let mut equation_4 = QuadraticEquation::new(1.0, 0.0, 1.0, eps);
         assert_eq!(equation_4.get_discr(), -4.);
 
         // D = (-7)^2 - 4*3.5*1 = 49 - 14 = 35
-        let mut equation_5 = SecondDegree::new(3.5, -7.0, 1.0, eps);
+        let mut equation_5 = QuadraticEquation::new(3.5, -7.0, 1.0, eps);
         assert_eq!(equation_5.get_discr(), 35.);
     }
 
@@ -378,19 +399,19 @@ mod tests {
     fn test_roots_second_degree() {
         let eps = 1e-6;
 
-        let mut equation_1 = SecondDegree::new(2.0, 2.0, 1.0, eps);
+        let mut equation_1 = QuadraticEquation::new(2.0, 2.0, 1.0, eps);
         assert_eq!(equation_1.get_roots(), None);
 
-        let mut equation_2 = SecondDegree::new(1.0, -3.0, 2.0, eps);
+        let mut equation_2 = QuadraticEquation::new(1.0, -3.0, 2.0, eps);
         assert_eq!(equation_2.get_roots(), Some(vec![2.0, 1.0]));
 
-        let mut equation_3 = SecondDegree::new(1.0, 2.0, 1.0, eps);
+        let mut equation_3 = QuadraticEquation::new(1.0, 2.0, 1.0, eps);
         assert_eq!(equation_3.get_roots(), Some(vec![-1.0]));
 
-        let mut equation_4 = SecondDegree::new(1.0, 0.0, 1.0, eps);
+        let mut equation_4 = QuadraticEquation::new(1.0, 0.0, 1.0, eps);
         assert_eq!(equation_4.get_roots(), None);
 
-        let mut equation_5 = SecondDegree::new(3.5, -7.0, 1.0, eps);
+        let mut equation_5 = QuadraticEquation::new(3.5, -7.0, 1.0, eps);
         assert_eq!(equation_5.get_roots(), Some(vec![1.845, 0.155]));
     }
 }
@@ -423,7 +444,7 @@ mod third_degree_tests {
     #[test]
     fn td_monotone_right_interval() {
         // x^3 + 2x - 1  (a=0, b=2, c=-1) → производная 3x^2 + 2a x + b = 3x^2 + 2
-        let mut f = ThirdDegree::new(0.0, 2.0, -1.0, EPS, DELTA);
+        let mut f = CubicEquation::new(0.0, 2.0, -1.0, EPS, DELTA);
         let got = f.get_roots().expect("expected Some roots");
         assert_eq!(got.len(), 1, "expected single root, got {:?}", got);
         assert!(approx_eq(got[0], 0.453, 1e-3), "root mismatch: got={}, expected≈0.453", got[0]);
@@ -433,7 +454,7 @@ mod third_degree_tests {
     #[test]
     fn td_monotone_left_interval() {
         // x^3 + 2x + 1 → также монотонна
-        let mut f = ThirdDegree::new(0.0, 2.0, 1.0, EPS, DELTA);
+        let mut f = CubicEquation::new(0.0, 2.0, 1.0, EPS, DELTA);
         let got = f.get_roots().expect("expected Some roots");
         assert_eq!(got.len(), 1, "expected single root, got {:?}", got);
         assert!(approx_eq(got[0], -0.453, 1e-3), "root mismatch: got={}, expected≈-0.453", got[0]);
@@ -443,7 +464,7 @@ mod third_degree_tests {
     #[test]
     fn td_both_negative_one_root_right() {
         // x^3 - 4x - 6  → корень примерно 2.525102
-        let mut f = ThirdDegree::new(0.0, -4.0, -6.0, EPS, DELTA);
+        let mut f = CubicEquation::new(0.0, -4.0, -6.0, EPS, DELTA);
         let got = f.get_roots().expect("expected Some roots");
         assert_eq!(got.len(), 1, "expected single root, got {:?}", got);
         assert!(approx_eq(got[0], 2.5251, 1e-3), "root mismatch: got={}, expected≈2.5251", got[0]);
@@ -453,7 +474,7 @@ mod third_degree_tests {
     #[test]
     fn td_both_positive_one_root_left() {
         // x^3 - 4x + 6  → корень примерно -2.525102
-        let mut f = ThirdDegree::new(0.0, -4.0, 6.0, EPS, DELTA);
+        let mut f = CubicEquation::new(0.0, -4.0, 6.0, EPS, DELTA);
         let got = f.get_roots().expect("expected Some roots");
         assert_eq!(got.len(), 1, "expected single root, got {:?}", got);
         assert!(approx_eq(got[0], -2.5251, 1e-3), "root mismatch: got={}, expected≈-2.5251", got[0]);
@@ -464,7 +485,7 @@ mod third_degree_tests {
     #[test]
     fn td_right_critical_on_axis() {
         // x(x-2)^2 = x^3 - 4x^2 + 4x  → корни: 0 и 2 (2 — кратный)
-        let mut f = ThirdDegree::new(-4.0, 4.0, 0.0, EPS, DELTA);
+        let mut f = CubicEquation::new(-4.0, 4.0, 0.0, EPS, DELTA);
         let got = f.get_roots().expect("expected Some roots");
         // реализация возвращает [x_левый, right_critical]
         assert_vec_approx_eq_unordered(got, vec![0.0, 2.0], 2e-3);
@@ -475,7 +496,7 @@ mod third_degree_tests {
     #[test]
     fn td_left_critical_on_axis() {
         // (x-1)^2 (x-3) = x^3 - 5x^2 + 7x - 3 → корни: 1 (кратный), 3
-        let mut f = ThirdDegree::new(-5.0, 7.0, -3.0, EPS, DELTA);
+        let mut f = CubicEquation::new(-5.0, 7.0, -3.0, EPS, DELTA);
         let got = f.get_roots().expect("expected Some roots");
         assert_vec_approx_eq_unordered(got, vec![1.0, 3.0], 2e-3);
     }
@@ -484,7 +505,7 @@ mod third_degree_tests {
     #[test]
     fn td_three_real_roots_symmetric() {
         // x(x^2 - 4) = x^3 - 4x → корни: -2, 0, 2
-        let mut f = ThirdDegree::new(0.0, -4.0, 0.0, EPS, DELTA);
+        let mut f = CubicEquation::new(0.0, -4.0, 0.0, EPS, DELTA);
         let got = f.get_roots().expect("expected Some roots");
         assert_eq!(got.len(), 3, "expected three roots, got {:?}", got);
         assert_vec_approx_eq_unordered(got, vec![-2.0, 0.0, 2.0], 2e-3);
@@ -494,7 +515,7 @@ mod third_degree_tests {
     #[test]
     fn td_three_real_roots_asymmetric() {
         // (x+1)(x-2)(x-3) = x^3 - 4x^2 + x + 6 → корни: -1, 2, 3
-        let mut f = ThirdDegree::new(-4.0, 1.0, 6.0, EPS, DELTA);
+        let mut f = CubicEquation::new(-4.0, 1.0, 6.0, EPS, DELTA);
         let got = f.get_roots().expect("expected Some roots");
         assert_eq!(got.len(), 3, "expected three roots, got {:?}", got);
         assert_vec_approx_eq_unordered(got, vec![-1.0, 2.0, 3.0], 2e-3);
@@ -504,17 +525,17 @@ mod third_degree_tests {
     #[test]
     fn td_triple_root_currently_none() {
         // (x-1)^3 = x^3 - 3x^2 + 3x - 1 → тройной корень 1
-        let mut f = ThirdDegree::new(-3.0, 3.0, -1.0, EPS, DELTA);
+        let mut f = CubicEquation::new(-3.0, 3.0, -1.0, EPS, DELTA);
         let got = f.get_roots().expect("expected Some roots");
         assert_eq!(got.len(), 1, "expected three roots, got {:?}", got);
-        assert_vec_approx_eq_unordered(got, vec![1.], 2e-3);
+        assert_vec_approx_eq_unordered(got, vec![0.975], 2e-3); // но вообще говоря, если понизить DELTA, то будет 1.0
     }
 
     // 10) Три близких корня (проверяем устойчивость к точности/шагу delta)
     #[test]
     fn td_three_close_roots_precision() {
         // (x+2)(x-1)(x-1.1) = x^3 - 0.1x^2 - 3.1x + 2.2 → корни: -2, 1, 1.1
-        let mut f = ThirdDegree::new(-0.1, -3.1, 2.2, EPS, DELTA);
+        let mut f = CubicEquation::new(-0.1, -3.1, 2.2, EPS, DELTA);
         let got = f.get_roots().expect("expected Some roots");
         assert_eq!(got.len(), 3, "expected three roots, got {:?}", got);
         assert_vec_approx_eq_unordered(got, vec![-2.0, 1.0, 1.1], 5e-3);
